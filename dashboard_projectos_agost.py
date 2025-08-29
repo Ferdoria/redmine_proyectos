@@ -204,7 +204,7 @@ if uploaded_file is not None:
                     st.info("No hay proyectos para este asignatario.")
 
     with main_tab1:
-       
+        st.subheader("Datos completos Core Bancario/Normativo")
         # --- Bloque resumen ---
         total_proyectos = len(df)
         total_finalizados = df['estado_actual'].astype(str).str.lower().eq('finalizado').sum()
@@ -272,7 +272,7 @@ if uploaded_file is not None:
                 height=(35 * len(df_implementados[columnas_a_mostrar_impl]) + 40),
                 hide_index=True
             )
-        st.subheader("Datos completos Core Bancario/Normativo")
+        
 
     with main_tab2:
         st.subheader("Gráficos estadísticos de proyectos (solo Jefatura Core Bancario y Normativo)")
