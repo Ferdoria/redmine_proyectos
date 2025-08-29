@@ -90,6 +90,15 @@ def clasificar(nombre):
 uploaded_file = st.sidebar.file_uploader("Sube el archivo Excel de proyectos", type=["xlsx"])
 
 if uploaded_file is not None:
+    # Función para mostrar barra de progreso en % Realizado
+    def barra_porcentaje(val):
+        try:
+            pct = float(val)
+        except:
+            return val
+        pct = max(0, min(100, pct))
+        color = '#2c7873' if pct == 100 else '#2980b9'
+        return f'<div style="background:#e0e0e0;border-radius:4px;position:relative;height:22px;width:100%;"><div style="background:{color};width:{pct}%;height:100%;border-radius:4px;"></div><span style="position:absolute;left:50%;top:0;transform:translateX(-50%);color:#222;font-weight:bold;">{pct:.0f}%</span></div>'
     # Función para resaltar filas:
     # - Verde suave de fondo si estado_actual es 'Estabilización' o 'Finalizado'
     # - Texto dorado si etiquetas contiene 'Post/Agos/25' (aunque el fondo sea verde)
@@ -149,10 +158,53 @@ if uploaded_file is not None:
     df = df[df['etiquetas'].str.contains('/Agos/25', na=False, regex=False)]
 
     # Tabs principales: Datos Completos, Datos Agrupados y Agrupados por Estados
-    main_tab1, main_tab2, main_tab3, tab_gerencia = st.tabs(["Datos Completos", "Gráficos", "Agrupados por Estados", "Agrupados por Gerencia/Unidad"])
+    main_tab1, main_tab2, main_tab3, tab_gerencia, tab_asignatario = st.tabs(["Datos Completos", "Gráficos", "Agrupados por Estados", "Agrupados por Gerencia/Unidad", "Por Asignatarios"])
+    # Nuevo tab: Agrupados por Asignatario
+    with tab_asignatario:
+        st.write("Proyectos agrupados por Asignatario:")
+
+        def extraer_asignatario(valor):
+            if pd.isna(valor) or str(valor).strip() == '':
+                return "(Sin asignatario)"
+            return str(valor).strip()
+
+        # Buscar el nombre real de la columna 'asignatario' ignorando mayúsculas, minúsculas y espacios
+        col_asignatario = None
+        for col in df.columns:
+            if col.replace(' ', '').lower() in ["asignatariopredeterminado", "asignatario"]:
+                col_asignatario = col
+                break
+        if col_asignatario is None:
+            st.error("No se encontró la columna 'Asignatario' en los datos.")
+        else:
+            # Filtrar por jefatura que contenga 'core bancario' o 'normativo'
+            df_asignatario = df[df['jefatura'].str.lower().str.contains('core bancario|normativo', na=False)].copy()
+            df_asignatario['Asignatario'] = df_asignatario[col_asignatario].apply(extraer_asignatario)
+            asignatarios = df_asignatario['Asignatario'].dropna().unique()
+            asignatarios = sorted(asignatarios)
+
+            # Calcular columnas a mostrar para este tab (evitar columnas inexistentes)
+            columnas_ocultas_asignatario = ['proyecto matriz', 'autor', 'codigo_proyecto', 'estabilizacion', 'codigo_estabilizacion', 'Grupo Jefatura']
+            columnas_a_mostrar_asignatario = [col for col in df_asignatario.columns if col.lower() not in [c.lower() for c in columnas_ocultas_asignatario]]
+
+            for asign in asignatarios:
+                n = df_asignatario[df_asignatario['Asignatario'] == asign].shape[0]
+                color = "#51748b"  # azul para agrupación
+                st.markdown(
+                    f'<div style="background-color:{color};padding:10px 16px;border-radius:6px;margin-bottom:0px;font-weight:bold;font-size:1.1em;">{asign} <span style="float:right">{n}</span></div>',
+                    unsafe_allow_html=True
+                )
+                if n > 0:
+                    st.dataframe(
+                        df_asignatario[df_asignatario['Asignatario'] == asign][columnas_a_mostrar_asignatario].style.apply(highlight_filas, axis=1),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("No hay proyectos para este asignatario.")
 
     with main_tab1:
-        st.subheader("Datos completos Core Bancario/Normativo")
+       
         # --- Bloque resumen ---
         total_proyectos = len(df)
         total_finalizados = df['estado_actual'].astype(str).str.lower().eq('finalizado').sum()
@@ -178,8 +230,12 @@ if uploaded_file is not None:
             "M022/24", "M030/25", "M018/25", "M048/25", "M034/25",
             "M041/25", "M136/24", "M043/25", "M034/24"
         ]
-        # Bloque Antes del Freeze
-        df_antes = df_core[~df_core['nombre'].astype(str).apply(lambda x: any(c in x for c in codigos_azules))]
+        # Bloque Antes del Freeze (excluyendo Finalizado y Estabilización)
+        estados_excluir = ['finalizado', 'estabilización']
+        df_antes = df_core[
+            (~df_core['nombre'].astype(str).apply(lambda x: any(c in x for c in codigos_azules))) &
+            (~df_core['estado_actual'].astype(str).str.lower().isin(estados_excluir))
+        ]
         st.markdown('<div style="background:#2c7873;color:#fff;padding:8px 16px;border-radius:6px;display:inline-block;font-weight:bold;">Antes del Freeze</div>', unsafe_allow_html=True)
         st.success(f"Total de registros: {len(df_antes[columnas_a_mostrar])}")
         st.dataframe(
@@ -188,8 +244,11 @@ if uploaded_file is not None:
             height=(35 * len(df_antes[columnas_a_mostrar]) + 40),
             hide_index=True
         )
-        # Bloque Después del Freeze
-        df_despues = df_core[df_core['nombre'].astype(str).apply(lambda x: any(c in x for c in codigos_azules))]
+        # Bloque Después del Freeze (excluyendo Finalizado y Estabilización)
+        df_despues = df_core[
+            (df_core['nombre'].astype(str).apply(lambda x: any(c in x for c in codigos_azules))) &
+            (~df_core['estado_actual'].astype(str).str.lower().isin(estados_excluir))
+        ]
         st.markdown('<div style="background:#2980b9;color:#fff;padding:8px 16px;border-radius:6px;display:inline-block;font-weight:bold;">Después del Freeze</div>', unsafe_allow_html=True)
         st.success(f"Total de registros: {len(df_despues[columnas_a_mostrar])}")
         st.dataframe(
@@ -198,6 +257,22 @@ if uploaded_file is not None:
             height=(35 * len(df_despues[columnas_a_mostrar]) + 40),
             hide_index=True
         )
+
+         # --- Tabla solo implementados al final ---
+        # Definir df_core y columnas_a_mostrar si no existen
+        df_core_impl = df[df['jefatura'].str.lower().str.contains('core bancario|normativo', na=False)].copy()
+        columnas_ocultas_impl = ['proyecto matriz', 'autor', 'codigo_proyecto', 'estabilizacion', 'codigo_estabilizacion']
+        columnas_a_mostrar_impl = [col for col in df_core_impl.columns if col.lower() not in columnas_ocultas_impl]
+        df_implementados = df_core_impl[df_core_impl['estado_actual'].astype(str).str.lower().isin(['finalizado', 'estabilización'])]
+        if not df_implementados.empty:
+            st.markdown('<div style="background:#2c7873;color:#fff;padding:8px 16px;border-radius:6px;display:inline-block;font-weight:bold;margin-top:24px;">Implementados (Finalizado o Estabilización)</div>', unsafe_allow_html=True)
+            st.dataframe(
+                df_implementados[columnas_a_mostrar_impl].style.apply(highlight_filas, axis=1),
+                use_container_width=True,
+                height=(35 * len(df_implementados[columnas_a_mostrar_impl]) + 40),
+                hide_index=True
+            )
+        st.subheader("Datos completos Core Bancario/Normativo")
 
     with main_tab2:
         st.subheader("Gráficos estadísticos de proyectos (solo Jefatura Core Bancario y Normativo)")
