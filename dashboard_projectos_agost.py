@@ -5,7 +5,7 @@ import re
 from io import BytesIO
 import subprocess
 import sys
-
+#FD
 # Función para instalar dependencias faltantes
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
