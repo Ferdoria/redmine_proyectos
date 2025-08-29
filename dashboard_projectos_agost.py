@@ -152,7 +152,24 @@ if uploaded_file is not None:
     main_tab1, main_tab2, main_tab3, tab_gerencia = st.tabs(["Datos Completos", "Gráficos", "Agrupados por Estados", "Agrupados por Gerencia/Unidad"])
 
     with main_tab1:
-        st.subheader("Datos completos Core Bancario y Canales")
+        st.subheader("Datos completos Core Bancario/Normativo")
+        # --- Bloque resumen ---
+        total_proyectos = len(df)
+        total_finalizados = df['estado_actual'].astype(str).str.lower().eq('finalizado').sum()
+        total_estabilizacion = df['estado_actual'].astype(str).str.lower().eq('estabilización').sum()
+        total_implementados = total_finalizados + total_estabilizacion
+        total_pres_agos = df['etiquetas'].astype(str).str.lower().str.contains('pres/agos/25').sum()
+        total_post_agos = df['etiquetas'].astype(str).str.lower().str.contains('post/agos/25').sum()
+
+        resumen_data = {
+            'Total Proyectos': [total_proyectos],           
+            'Presentación Agosto/25': [total_pres_agos],
+            'Posterior Presentación Agosto/25': [total_post_agos],
+            'Implementados': [total_implementados]
+        }
+        resumen_df = pd.DataFrame(resumen_data)
+        #st.markdown('<div style="background:#f5f5f5;padding:8px 16px;border-radius:6px;display:inline-block;font-weight:bold;margin-bottom:10px;">Resumen general de la planilla</div>', unsafe_allow_html=True)
+        st.dataframe(resumen_df, use_container_width=True, hide_index=True)
         columnas_ocultas = ['proyecto matriz', 'autor', 'codigo_proyecto', 'estabilizacion', 'codigo_estabilizacion']
         columnas_a_mostrar = [col for col in df.columns if col.lower() not in columnas_ocultas]
         # Filtrar solo jefatura Core Bancario y Normativo
