@@ -124,80 +124,83 @@ if uploaded_file is not None:
         
         # --- Sección de Visualización ---
         st.header('📈 Dashboard de Análisis')
-        
+
         # KPI's principales
         total_objetos = len(filtered_df)
         objetos_compilados = filtered_df['Compilado'].str.contains('SI', na=False).sum()
-        objetos_testeados = filtered_df['Testeado'].str.contains('SI', na=False).sum()
-        
+        #objetos_testeados = filtered_df['Testeado'].str.contains('SI', na=False).sum()
+
         # Calcular pendientes a compilar (distinto a SI y N/A)
         objetos_pendientes_compilar = len(filtered_df[
-            (~filtered_df['Compilado'].str.contains('SI', na=False)) & 
+            (~filtered_df['Compilado'].str.contains('SI', na=False)) &
             (~filtered_df['Compilado'].str.contains('N/A', na=False))
         ])
-        
-        # Verificar solo la columna "XPZ enviado" específicamente
+
+        # Calcular XPZ enviados y pendientes de envío
         if 'XPZ enviado' in filtered_df.columns:
             total_xpz_enviados = filtered_df['XPZ enviado'].str.contains('SI', na=False).sum()
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col5.metric("XPZ Enviados", total_xpz_enviados)
+            xpz_pend_envio = objetos_compilados - total_xpz_enviados
         else:
-            col1, col2, col3, col4 = st.columns(4)
-        
+            total_xpz_enviados = 0
+            xpz_pend_envio = 0
+
+        # Mostrar KPIs ordenados
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Total de Objetos", total_objetos)
         col2.metric("Objetos Compilados", objetos_compilados)
         col3.metric("⏳ Pendientes a Compilar", objetos_pendientes_compilar)
-        col4.metric("Objetos Testeados", objetos_testeados)
+        #col4.metric("Objetos Testeados", objetos_testeados)
+        col4.metric("XPZ Enviados", total_xpz_enviados)
+        col5.metric("XPZ Pend. Envio", xpz_pend_envio)
        
         
         st.markdown('---')
         
         # Gráfico por Responsable de Migración
-        st.subheader('Objetos por Responsable de Migración')
-        
-        # Asegurar que todos los valores se muestren, incluyendo vacíos
-        responsable_counts = filtered_df['Responsable_Migracion'].value_counts(dropna=False).reset_index()
-        responsable_counts.columns = ['Responsable_Migracion', 'Cantidad']
-        
+        st.subheader('Asignaciones y Estado por Responsable de Migración')
+
+        # Agrupar por Responsable_Migracion y calcular métricas
+        resumen_responsable = filtered_df.groupby('Responsable_Migracion').agg(
+            Asignaciones=('Responsable_Migracion', 'count'),
+            Compilados=('Compilado', lambda x: (x.str.contains('SI', na=False)).sum()),
+            XPZ_Enviados=('XPZ enviado', lambda x: (x.str.contains('SI', na=False)).sum() if 'XPZ enviado' in filtered_df.columns else 0)
+        ).reset_index()
+
+        # Calcular XPZ Pendientes de Envío por responsable
+        resumen_responsable['XPZ_Pend_Envio'] = resumen_responsable['Compilados'] - resumen_responsable['XPZ_Enviados']
+
         # Ordenar para que los valores especiales aparezcan primero
-        # Ahora buscamos "N/A" tal como viene del archivo, no "No Aplica"
-        responsable_counts['orden'] = responsable_counts['Responsable_Migracion'].apply(
+        resumen_responsable['orden'] = resumen_responsable['Responsable_Migracion'].apply(
             lambda x: 0 if x == 'Sin Asignar' else (1 if x == 'N/A' else 2)
         )
-        responsable_counts = responsable_counts.sort_values(['orden', 'Cantidad'], ascending=[True, False])
+        resumen_responsable = resumen_responsable.sort_values(['orden', 'Asignaciones'], ascending=[True, False])
+
+        # Mostrar estadísticas adicionales
+        total_sin_asignar = resumen_responsable[resumen_responsable['Responsable_Migracion'] == 'Sin Asignar']['Asignaciones'].sum()
+        total_na = resumen_responsable[resumen_responsable['Responsable_Migracion'] == 'N/A']['Asignaciones'].sum()
+        total_asignados = len(filtered_df) - total_sin_asignar - total_na
+
+        col_info1, col_info2, col_info3 = st.columns(3)
+        col_info1.metric("📝 Sin Asignar", total_sin_asignar)
+        col_info2.metric("❌ N/A (No Aplica)", total_na)
+        col_info3.metric("👤 Con Responsable", total_asignados)
+
+        # Mostrar tabla resumen por responsable
+        st.dataframe(resumen_responsable[['Responsable_Migracion', 'Asignaciones', 'Compilados', 'XPZ_Pend_Envio']], use_container_width=True)
+
+        # Crear gráfico de barras apiladas por responsable
+        fig_responsable = px.bar(
+            resumen_responsable,
+            x='Responsable_Migracion',
+            y=['Asignaciones', 'Compilados', 'XPZ_Pend_Envio'],
+            title='Asignaciones, Compilados y XPZ Pend. Envio por Responsable de Migración',
+            labels={'value': 'Cantidad', 'variable': 'Estado', 'Responsable_Migracion': 'Responsable'},
+        )
+        fig_responsable.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig_responsable, use_container_width=True)
         
-        if not responsable_counts.empty:
-            # Mostrar estadísticas adicionales
-            total_sin_asignar = responsable_counts[responsable_counts['Responsable_Migracion'] == 'Sin Asignar']['Cantidad'].sum()
-            total_na = responsable_counts[responsable_counts['Responsable_Migracion'] == 'N/A']['Cantidad'].sum()
-            total_asignados = len(filtered_df) - total_sin_asignar - total_na
-            
-            col_info1, col_info2, col_info3 = st.columns(3)
-            col_info1.metric("📝 Sin Asignar", total_sin_asignar)
-            col_info2.metric("❌ N/A (No Aplica)", total_na)
-            col_info3.metric("👤 Con Responsable", total_asignados)
-            
-            # Crear gráfico con colores diferenciados
-            colors = ['#ff6b6b' if x == 'Sin Asignar' 
-                     else '#ffa500' if x == 'N/A'
-                     else '#4ecdc4' 
-                     for x in responsable_counts['Responsable_Migracion']]
-            
-            fig_responsable = px.bar(
-                responsable_counts,
-                x='Responsable_Migracion',
-                y='Cantidad',
-                title='Cantidad de Objetos por Responsable de Migración',
-                labels={'Responsable_Migracion': 'Responsable', 'Cantidad': 'Número de Objetos'},
-                color_discrete_sequence=colors
-            )
-            fig_responsable.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig_responsable, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar el gráfico de Responsables de Migración.")
-        
-        # ---
-        st.header('� Resumen por Proyecto')
+        # ---        
+        st.header('📊 Resumen por Proyecto XPZ Pendientes de envío')
         
         # Crear resumen agrupado por proyecto
         resumen_proyectos = []
@@ -205,8 +208,8 @@ if uploaded_file is not None:
         for proyecto in filtered_df['Proyecto'].unique():
             # Filtrar datos por proyecto, excluyendo los que tienen Compilado = N/A
             df_proyecto = filtered_df[
-                (filtered_df['Proyecto'] == proyecto) & 
-                (~filtered_df['Compilado'].str.contains('N/A', na=False))
+            (filtered_df['Proyecto'] == proyecto) & 
+            (~filtered_df['Compilado'].str.contains('N/A', na=False))
             ]
             
             # Solo continuar si el proyecto tiene registros válidos (sin N/A)
@@ -228,23 +231,29 @@ if uploaded_file is not None:
                 xpz_enviados_proyecto = 0
             
             resumen_proyectos.append({
-                'Proyecto': proyecto,
-                'Total Objetos': total_objetos_proyecto,
-                'Objetos Compilados': objetos_compilados_proyecto,
-                'XPZ Enviados': xpz_enviados_proyecto
+            'Proyecto': proyecto,
+            'Total Objetos': total_objetos_proyecto,
+            'Objetos Compilados': objetos_compilados_proyecto,
+            'XPZ Enviados': xpz_enviados_proyecto
             })
         
-        # Convertir a DataFrame y mostrar
+        # Convertir a DataFrame
         df_resumen = pd.DataFrame(resumen_proyectos)
         
+        # Filtrar solo proyectos donde XPZ Enviados < Objetos Compilados (pendientes de envío)
+        df_resumen_pendientes = df_resumen[df_resumen['XPZ Enviados'] < df_resumen['Objetos Compilados']]
+        
         # Ordenar por total de objetos descendente
-        df_resumen = df_resumen.sort_values('Total Objetos', ascending=False)
+        df_resumen_pendientes = df_resumen_pendientes.sort_values('Total Objetos', ascending=False).reset_index(drop=True)
         
-        # Mostrar la tabla resumen
-        st.dataframe(df_resumen, use_container_width=True)
+        # Renumerar la primera columna (índice) para mostrar el orden
+        df_resumen_pendientes.index = df_resumen_pendientes.index + 1
+        df_resumen_pendientes.index.name = 'N°'
         
+        # Mostrar la tabla resumen solo con pendientes
+        st.dataframe(df_resumen_pendientes, use_container_width=True)
         # ---
-        st.header('�📋 Detalle de Objetos')
+        st.header('📋 Detalle de Objetos')
         st.dataframe(filtered_df)
 
     except Exception as e:
